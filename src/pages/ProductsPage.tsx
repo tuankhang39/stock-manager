@@ -6,6 +6,7 @@ import { useApp } from '../store/context'
 import { ExcelButtons } from '../ui/ExcelButtons'
 import { SalePriceCell } from '../ui/prices'
 import { ProductNameCell } from '../ui/ProductThumb'
+import { Pager, usePagination } from '../ui/Pagination'
 
 type SortKey = 'updated' | 'name' | 'sku' | 'qty-asc' | 'qty-desc'
 
@@ -52,6 +53,7 @@ export function ProductsPage({ lowOnly, setLowOnly, onLoadSample }: Props) {
     })
     return rows
   }, [data.products, query, lowOnly, categoryFilter, sort, threshold, categoryById])
+  const pager = usePagination(list, 'products', `${query}|${categoryFilter}|${sort}|${lowOnly}`)
 
   return (
     <>
@@ -137,82 +139,85 @@ export function ProductsPage({ lowOnly, setLowOnly, onLoadSample }: Props) {
           </div>
         </div>
       ) : (
-        <div className="table-wrap">
-          <table className="stock-table products-table">
-            <thead>
-              <tr>
-                <th>Mã SKU</th>
-                <th>Tên SP</th>
-                <th className="col-num">Tồn</th>
-                <th className="col-unit">Đơn vị</th>
-                <th className="col-num">Giá nhập</th>
-                <th>Giá bán</th>
-                <th className="col-actions">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((p) => {
-                const combo = isCombo(p)
-                const low = isLowStock(p, threshold)
-                const qty = combo ? comboAvailable(p, data.products) : p.quantity
-                const cat = p.categoryId ? categoryById.get(p.categoryId) : undefined
-                return (
-                  <tr
-                    key={p.id}
-                    className={`row-click${low ? ' row-low' : ''}`}
-                    onClick={() => openProduct(p.id)}
-                  >
-                    <td className="muted">{p.sku || '—'}</td>
-                    <td>
-                      <ProductNameCell product={p}>
-                        {combo ? <span className="badge inline">Combo</span> : null}
-                        {cat ? <span className="badge inline cat-badge">{cat}</span> : null}
-                        {low ? <span className="badge inline low-badge">Sắp hết</span> : null}
-                      </ProductNameCell>
-                    </td>
-                    <td className="col-num">
-                      <span className={`table-qty${low ? ' qty-low' : ''}`}>{formatNumber(qty)}</span>
-                      {combo ? <div className="muted small">bán được</div> : null}
-                    </td>
-                    <td className="col-unit">{p.unit || '—'}</td>
-                    <td className="col-num">{formatMoney(p.unitPrice)}</td>
-                    <td>
-                      <SalePriceCell product={p} platforms={data.platforms} />
-                    </td>
-                    <td className="col-actions" onClick={(e) => e.stopPropagation()}>
-                      <div className="table-actions">
-                        {combo ? (
-                          <button
-                            className="btn btn-primary"
-                            type="button"
-                            onClick={() => void sellCombo(p.id, 1)}
-                          >
-                            −1 combo
-                          </button>
-                        ) : (
+        <>
+          <div className="table-wrap">
+            <table className="stock-table products-table">
+              <thead>
+                <tr>
+                  <th>Mã SKU</th>
+                  <th>Tên SP</th>
+                  <th className="col-num">Tồn</th>
+                  <th className="col-unit">Đơn vị</th>
+                  <th className="col-num">Giá nhập</th>
+                  <th>Giá bán</th>
+                  <th className="col-actions">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pager.pageItems.map((p) => {
+                  const combo = isCombo(p)
+                  const low = isLowStock(p, threshold)
+                  const qty = combo ? comboAvailable(p, data.products) : p.quantity
+                  const cat = p.categoryId ? categoryById.get(p.categoryId) : undefined
+                  return (
+                    <tr
+                      key={p.id}
+                      className={`row-click${low ? ' row-low' : ''}`}
+                      onClick={() => openProduct(p.id)}
+                    >
+                      <td className="muted">{p.sku || '—'}</td>
+                      <td>
+                        <ProductNameCell product={p}>
+                          {combo ? <span className="badge inline">Combo</span> : null}
+                          {cat ? <span className="badge inline cat-badge">{cat}</span> : null}
+                          {low ? <span className="badge inline low-badge">Sắp hết</span> : null}
+                        </ProductNameCell>
+                      </td>
+                      <td className="col-num">
+                        <span className={`table-qty${low ? ' qty-low' : ''}`}>{formatNumber(qty)}</span>
+                        {combo ? <div className="muted small">bán được</div> : null}
+                      </td>
+                      <td className="col-unit">{p.unit || '—'}</td>
+                      <td className="col-num">{formatMoney(p.unitPrice)}</td>
+                      <td>
+                        <SalePriceCell product={p} platforms={data.platforms} />
+                      </td>
+                      <td className="col-actions" onClick={(e) => e.stopPropagation()}>
+                        <div className="table-actions">
+                          {combo ? (
+                            <button
+                              className="btn btn-primary"
+                              type="button"
+                              onClick={() => void sellCombo(p.id, 1)}
+                            >
+                              −1 combo
+                            </button>
+                          ) : (
+                            <button
+                              className="btn btn-ghost"
+                              type="button"
+                              onClick={() => openDocForm({ type: 'in', lines: [{ productId: p.id }] })}
+                            >
+                              Nhập
+                            </button>
+                          )}
                           <button
                             className="btn btn-ghost"
                             type="button"
-                            onClick={() => openDocForm({ type: 'in', lines: [{ productId: p.id }] })}
+                            onClick={() => openDocForm({ type: 'out', lines: [{ productId: p.id }] })}
                           >
-                            Nhập
+                            Xuất
                           </button>
-                        )}
-                        <button
-                          className="btn btn-ghost"
-                          type="button"
-                          onClick={() => openDocForm({ type: 'out', lines: [{ productId: p.id }] })}
-                        >
-                          Xuất
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Pager {...pager} />
+        </>
       )}
     </>
   )

@@ -4,6 +4,7 @@ import { formatMoney, formatNumber } from '../domain/format'
 import { isLowStock, stockProducts, stockValue, summarize } from '../domain/valuation'
 import { useApp } from '../store/context'
 import { ProductNameCell } from '../ui/ProductThumb'
+import { Pager, usePagination } from '../ui/Pagination'
 
 type Panel = 'products' | 'qty' | 'low' | 'value'
 
@@ -36,6 +37,7 @@ export function DashboardPage({ onOpenProducts }: { onOpenProducts: (lowOnly: bo
     if (panel === 'qty') return [...real].sort((a, b) => b.quantity - a.quantity)
     return [...real].sort((a, b) => stockValue(b) - stockValue(a))
   }, [data.products, panel, threshold])
+  const pager = usePagination(rows, 'dashboard', panel)
 
   const byCategory = useMemo(() => {
     const map = new Map<string, { name: string; count: number; qty: number; value: number }>()
@@ -95,53 +97,56 @@ export function DashboardPage({ onOpenProducts }: { onOpenProducts: (lowOnly: bo
             <p>{panel === 'low' ? 'Không có sản phẩm nào sắp hết.' : 'Chưa có sản phẩm.'}</p>
           </div>
         ) : (
-          <div className="table-wrap">
-            <table className="stock-table">
-              <thead>
-                <tr>
-                  <th>Mã SKU</th>
-                  <th>Tên SP</th>
-                  <th>Nhóm</th>
-                  <th className="col-num">Tồn</th>
-                  <th className="col-num">Giá nhập</th>
-                  <th className="col-num">Giá trị tồn</th>
-                  <th className="col-num">% giá trị</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((p) => {
-                  const low = isLowStock(p, threshold)
-                  const v = stockValue(p)
-                  return (
-                    <tr
-                      key={p.id}
-                      className={`row-click${low ? ' row-low' : ''}`}
-                      onClick={() => openProduct(p.id)}
-                    >
-                      <td className="muted">{p.sku || '—'}</td>
-                      <td>
-                        <ProductNameCell product={p} />
-                      </td>
-                      <td className="muted">
-                        {p.categoryId ? (categoryName.get(p.categoryId) ?? '—') : '—'}
-                      </td>
-                      <td className="col-num">
-                        <span className={`table-qty${low ? ' qty-low' : ''}`}>
-                          {formatNumber(p.quantity)}
-                        </span>{' '}
-                        <span className="muted small">{p.unit ?? ''}</span>
-                      </td>
-                      <td className="col-num">{formatMoney(p.unitPrice)}</td>
-                      <td className="col-num">{formatMoney(v)}</td>
-                      <td className="col-num">
-                        {sum.totalValue > 0 ? `${((v / sum.totalValue) * 100).toFixed(1)}%` : '—'}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="table-wrap">
+              <table className="stock-table">
+                <thead>
+                  <tr>
+                    <th>Mã SKU</th>
+                    <th>Tên SP</th>
+                    <th>Nhóm</th>
+                    <th className="col-num">Tồn</th>
+                    <th className="col-num">Giá nhập</th>
+                    <th className="col-num">Giá trị tồn</th>
+                    <th className="col-num">% giá trị</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pager.pageItems.map((p) => {
+                    const low = isLowStock(p, threshold)
+                    const v = stockValue(p)
+                    return (
+                      <tr
+                        key={p.id}
+                        className={`row-click${low ? ' row-low' : ''}`}
+                        onClick={() => openProduct(p.id)}
+                      >
+                        <td className="muted">{p.sku || '—'}</td>
+                        <td>
+                          <ProductNameCell product={p} />
+                        </td>
+                        <td className="muted">
+                          {p.categoryId ? (categoryName.get(p.categoryId) ?? '—') : '—'}
+                        </td>
+                        <td className="col-num">
+                          <span className={`table-qty${low ? ' qty-low' : ''}`}>
+                            {formatNumber(p.quantity)}
+                          </span>{' '}
+                          <span className="muted small">{p.unit ?? ''}</span>
+                        </td>
+                        <td className="col-num">{formatMoney(p.unitPrice)}</td>
+                        <td className="col-num">{formatMoney(v)}</td>
+                        <td className="col-num">
+                          {sum.totalValue > 0 ? `${((v / sum.totalValue) * 100).toFixed(1)}%` : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <Pager {...pager} />
+          </>
         )}
       </section>
 

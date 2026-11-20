@@ -1106,3 +1106,153 @@
   inset: 0;
   z-index: 100;
 }
+
+/* --- phân trang bảng --- */
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.pager-info {
+  color: var(--text-soft);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pager-pages {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.pager-pages button {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 0.6rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.pager-pages button:hover:not(:disabled):not(.active) {
+  background: var(--surface-hover);
+  border-color: var(--line-strong);
+}
+
+.pager-pages button.active {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg-elevated);
+  cursor: default;
+}
+
+.pager-pages button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pager-gap {
+  min-width: 20px;
+  text-align: center;
+  color: var(--text-faint);
+}
+
+.pager-size {
+  width: auto;
+  padding-block: 0.45rem;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 600px) {
+  .pager {
+    justify-content: center;
+  }
+
+  .pager-info {
+    width: 100%;
+    text-align: center;
+  }
+}
+
+/* --- lịch sử: chọn khoảng ngày giờ --- */
+.range-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: -0.25rem 0 1rem;
+}
+
+.range-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chip {
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.chip:hover:not(.active) {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.chip.active {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg-elevated);
+}
+
+.range-bar .date-filter label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.range-bar .date-filter input.select {
+  min-width: 13.5rem;
+}
+
+@media (max-width: 720px) {
+  .range-bar .date-filter {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .range-bar .date-filter > span {
+    display: none;
+  }
+
+  .range-bar .date-filter label {
+    width: 100%;
+  }
+
+  .range-bar .date-filter label > span {
+    width: 2.5rem;
+  }
+
+  .range-bar .date-filter input.select {
+    flex: 1;
+    min-width: 0;
+  }
+}

@@ -597,6 +597,8 @@ function movementTypeLabel(m: StockMovement): string {
 export async function exportMovementsToExcel(
   movements: StockMovement[],
   products: Product[] = [],
+  /** Khoảng thời gian đã lọc: ghi vào tiêu đề + tên file. */
+  range?: { label: string; fileSuffix: string },
 ): Promise<void> {
   const skuById = new Map(products.map((p) => [p.id, p.sku]))
   const today = new Date()
@@ -626,7 +628,8 @@ export async function exportMovementsToExcel(
   sheet.mergeCells(1, 1, 1, 11)
   const titleCell = sheet.getCell(1, 1)
   titleCell.value =
-    'Lịch sử chỉnh tồn kho BHLĐ\n劳保库存调整历史'
+    'Lịch sử chỉnh tồn kho BHLĐ\n劳保库存调整历史' + (range ? `\n${range.label}` : '')
+  if (range) titleRow.height = 48
   styleCell(titleCell, { yellow: true, bold: true, size: 12 })
 
   const headers = [
@@ -692,7 +695,7 @@ export async function exportMovementsToExcel(
     styleCell(cell, { size: 11 })
   }
 
-  const stamp = localDateKey(today)
+  const stamp = range ? range.fileSuffix : localDateKey(today)
   await downloadWorkbook(workbook, `LICH SU CHINH TON BHLD ${stamp}.xlsx`)
 }
 
