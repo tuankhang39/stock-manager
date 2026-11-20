@@ -28,6 +28,8 @@ Push lên nhánh `main` → [.github/workflows/deploy.yml](.github/workflows/dep
 
 - Secret của repo (Settings → Secrets and variables → Actions): `VPS_HOST`, `VPS_USER` (= `deploy`), `VPS_SSH_KEY` (private key; public key tương ứng nằm trong `/home/deploy/.ssh/authorized_keys` của VPS).
 - `/opt/xiaoxinstock/.env` trên VPS giữ mật khẩu DB, tài khoản, `SESSION_SECRET` — không nằm trong git.
+- Tên miền https://nhuhodethuong.duckdns.org: Caddy chung của VPS (container `thansohoc-caddy-1`) import `/opt/caddy-sites/*.caddy`; deploy copy [deploy/xiaoxinstock.caddy](deploy/xiaoxinstock.caddy) vào đó rồi reload Caddy. Không sửa Caddyfile của thansohoc.
+- Backup: script chung `/usr/local/bin/backup-postgres-all.sh` (8:30 hằng ngày) dump DB vào `/root/db-backups/<ngày>/xiaoxinstock.dump`, giữ 14 ngày + bản sao R2.
 - Quay về bản cũ: trên VPS sửa `IMAGE_TAG` trong `.env` thành commit cũ rồi `docker compose -f docker-compose.prod.yml up -d`.
 
 ## Chạy khi phát triển

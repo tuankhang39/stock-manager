@@ -21,3 +21,22 @@ echo "==> Khởi động lại"
 dc up -d --remove-orphans --wait --wait-timeout 180
 dc ps
 docker image prune -f >/dev/null
+
+# Tên miền: Caddy chung (container thansohoc-caddy-1) import /opt/caddy-sites/*.caddy.
+# Chỉ ghi file của dự án này; kiểm tra cấu hình trước, sai thì trả lại file cũ (Caddy vẫn chạy cấu hình cũ).
+CADDY=thansohoc-caddy-1
+SITES=/opt/caddy-sites
+if [ -d "$SITES" ] && docker ps --format '{{.Names}}' | grep -qx "$CADDY"; then
+  echo "==> Cập nhật Caddy ($SITES/xiaoxinstock.caddy)"
+  cp -f "$SITES/xiaoxinstock.caddy" /tmp/xiaoxinstock.caddy.prev 2>/dev/null || true
+  cp -f deploy/xiaoxinstock.caddy "$SITES/xiaoxinstock.caddy"
+  if docker exec "$CADDY" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+    docker exec "$CADDY" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+  else
+    echo "Caddyfile không hợp lệ — trả lại bản cũ" >&2
+    cp -f /tmp/xiaoxinstock.caddy.prev "$SITES/xiaoxinstock.caddy" 2>/dev/null || true
+    exit 1
+  fi
+else
+  echo "==> Bỏ qua Caddy (chưa có $SITES hoặc $CADDY không chạy)"
+fi

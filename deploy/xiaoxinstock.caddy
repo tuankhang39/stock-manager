@@ -1,0 +1,6 @@
+# XiaoxinStock (repo stock-manager) — GitHub Actions copy file này vào /opt/caddy-sites/ trên VPS
+# rồi reload Caddy (container thansohoc-caddy-1, import /etc/caddy/sites/*.caddy).
+nhuhodethuong.duckdns.org {
+	encode zstd gzip
+	reverse_proxy xiaoxinstock-app-1:3001
+}

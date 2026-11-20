@@ -124,5 +124,5 @@ jobs:
 
           retry run_ssh "mkdir -p '$DEPLOY_PATH/deploy'"
           retry run_scp -q docker-compose.prod.yml "$remote:$DEPLOY_PATH/"
-          retry run_scp -q deploy/remote-deploy.sh "$remote:$DEPLOY_PATH/deploy/"
+          retry run_scp -q deploy/remote-deploy.sh deploy/xiaoxinstock.caddy "$remote:$DEPLOY_PATH/deploy/"
           retry run_ssh "chmod +x '$DEPLOY_PATH/deploy/remote-deploy.sh' && DEPLOY_PATH='$DEPLOY_PATH' IMAGE_REPO='$IMAGE_REPO' IMAGE_TAG='$IMAGE_TAG' GHCR_USER='$GHCR_USER' GHCR_TOKEN='$GHCR_TOKEN' bash '$DEPLOY_PATH/deploy/remote-deploy.sh'"
