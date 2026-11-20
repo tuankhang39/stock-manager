@@ -36,7 +36,9 @@ async function main() {
 
   const app = express()
   app.disable('x-powered-by')
-  app.set('trust proxy', 'loopback')
+  // Tin X-Forwarded-For từ reverse proxy nội bộ (Caddy trong mạng Docker) để req.ip là IP thật của người dùng.
+  // Chỉ an toàn khi cổng app KHÔNG mở thẳng ra internet (docker-compose.prod.yml chỉ bind 127.0.0.1).
+  app.set('trust proxy', 'loopback, uniquelocal')
   app.use('/api', jsonOnly, express.json({ limit: '200mb' }))
 
   app.post('/api/login', (req, res) => auth.login(req, res))
