@@ -16,6 +16,11 @@ services:
       TZ: Asia/Ho_Chi_Minh
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # Tên riêng: app còn nằm trong mạng thansohoc_default, nơi "db" là Postgres của thansohoc.
+    networks:
+      default:
+        aliases:
+          - xiaoxinstock-db
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     healthcheck:
@@ -31,7 +36,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-xiaoxin}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-xiaoxin}
+      DATABASE_URL: postgres://${POSTGRES_USER:-xiaoxin}:${POSTGRES_PASSWORD}@xiaoxinstock-db:5432/${POSTGRES_DB:-xiaoxin}
       APP_USERNAME: ${APP_USERNAME:?Đặt APP_USERNAME trong .env}
       APP_PASSWORD: ${APP_PASSWORD:?Đặt APP_PASSWORD trong .env}
       SESSION_SECRET: ${SESSION_SECRET:?Đặt SESSION_SECRET trong .env}
