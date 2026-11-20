@@ -1,0 +1,48 @@
+# Bản chạy trên VPS: dùng image build sẵn từ GitHub Actions (GHCR), không build tại chỗ.
+# GitHub Actions copy file này vào /opt/xiaoxinstock rồi chạy deploy/remote-deploy.sh.
+# Cần sẵn trên VPS: /opt/xiaoxinstock/.env (mật khẩu DB, tài khoản, SESSION_SECRET).
+# Chạy máy local / LAN thì vẫn dùng docker-compose.yml.
+name: xiaoxinstock
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-xiaoxin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Đặt POSTGRES_PASSWORD trong .env}
+      POSTGRES_DB: ${POSTGRES_DB:-xiaoxin}
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    image: ${IMAGE_REPO:?Đặt IMAGE_REPO}:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-xiaoxin}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-xiaoxin}
+      APP_USERNAME: ${APP_USERNAME:?Đặt APP_USERNAME trong .env}
+      APP_PASSWORD: ${APP_PASSWORD:?Đặt APP_PASSWORD trong .env}
+      SESSION_SECRET: ${SESSION_SECRET:?Đặt SESSION_SECRET trong .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "${APP_PORT:-8080}:3001"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  pgdata:

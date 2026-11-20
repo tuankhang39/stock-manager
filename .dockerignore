@@ -1,0 +1,9 @@
+node_modules
+dist
+server-dist
+release
+.git
+.env
+.env.*
+keys-private.txt
+*.tsbuildinfo

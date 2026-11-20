@@ -1,82 +1,164 @@
-import type { Product, StockMovement } from './types'
+import {
+  DEFAULT_LOW_STOCK,
+  DEFAULT_PLATFORMS,
+  type AppData,
+  type Product,
+  type StockDocument,
+  type StockMovement,
+} from './types'
 
-const PRODUCTS_KEY = 'riland-products-v2'
-const MOVEMENTS_KEY = 'riland-movements-v2'
-const LEGACY_PRODUCTS_KEY = 'riland-products-v1'
+const LEGACY_PRODUCTS_KEY = 'riland-products-v2'
+const LEGACY_MOVEMENTS_KEY = 'riland-movements-v2'
+const LEGACY_PRODUCTS_V1_KEY = 'riland-products-v1'
+const FALLBACK_KEY = 'xiaoxin-appdata-v3'
 const THEME_KEY = 'riland-theme'
 
 export const BACKUP_FORMAT = 'riland-backup' as const
-export const BACKUP_VERSION = 1 as const
+export const BACKUP_VERSION = 2 as const
 
-export type RilandBackup = {
+export type RilandBackup = AppData & {
   format: typeof BACKUP_FORMAT
   version: number
   exportedAt: string
-  products: Product[]
-  movements: StockMovement[]
   theme?: string
 }
 
-export function loadProducts(): Product[] {
-  try {
-    const raw = localStorage.getItem(PRODUCTS_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw) as Product[]
-      return Array.isArray(parsed) ? parsed : []
-    }
+/* ---------- Dữ liệu cũ trong trình duyệt (trước khi chuyển sang PostgreSQL) ---------- */
 
-    const legacy = localStorage.getItem(LEGACY_PRODUCTS_KEY)
-    if (legacy) {
-      const parsed = JSON.parse(legacy) as Product[]
-      if (Array.isArray(parsed)) {
-        saveProducts(parsed)
-        return parsed
-      }
+const DB_NAME = 'xiaoxin-stock'
+const STORE = 'kv'
+const DATA_KEY = 'appdata'
+const MIGRATED_KEY = 'xiaoxin-migrated-to-server-v1'
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB không khả dụng'))
+      return
     }
-    return []
-  } catch {
-    return []
+    const req = indexedDB.open(DB_NAME, 1)
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(STORE)
+    }
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error ?? new Error('Không mở được IndexedDB'))
+  })
+}
+
+async function idbGet<T>(key: string): Promise<T | undefined> {
+  const db = await openDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly')
+    const req = tx.objectStore(STORE).get(key)
+    req.onsuccess = () => resolve(req.result as T | undefined)
+    req.onerror = () => reject(req.error)
+    tx.oncomplete = () => db.close()
+  })
+}
+
+/** Điền mặc định cho các trường mới (dữ liệu / backup cũ không có). */
+export function normalizeData(raw: Partial<AppData>): AppData {
+  const settings = {
+    lowStockThreshold:
+      typeof raw.settings?.lowStockThreshold === 'number' &&
+      raw.settings.lowStockThreshold >= 0
+        ? Math.floor(raw.settings.lowStockThreshold)
+        : DEFAULT_LOW_STOCK,
+  }
+  const platforms =
+    Array.isArray(raw.platforms) && raw.platforms.length > 0
+      ? raw.platforms
+      : DEFAULT_PLATFORMS.map((p) => ({ ...p }))
+  return {
+    products: Array.isArray(raw.products) ? raw.products : [],
+    movements: Array.isArray(raw.movements) ? raw.movements : [],
+    documents: Array.isArray(raw.documents) ? raw.documents : [],
+    categories: Array.isArray(raw.categories) ? raw.categories : [],
+    platforms,
+    settings,
   }
 }
 
-export function saveProducts(products: Product[]): void {
-  localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products))
-}
-
-export function loadMovements(): StockMovement[] {
+function loadLegacyLocal(): AppData | null {
   try {
-    const raw = localStorage.getItem(MOVEMENTS_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as StockMovement[]
-    return Array.isArray(parsed) ? parsed : []
+    const rawProducts =
+      localStorage.getItem(LEGACY_PRODUCTS_KEY) ?? localStorage.getItem(LEGACY_PRODUCTS_V1_KEY)
+    const rawMovements = localStorage.getItem(LEGACY_MOVEMENTS_KEY)
+    if (!rawProducts && !rawMovements) return null
+    const products = rawProducts ? (JSON.parse(rawProducts) as Product[]) : []
+    const movements = rawMovements ? (JSON.parse(rawMovements) as StockMovement[]) : []
+    return normalizeData({
+      products: Array.isArray(products) ? products : [],
+      movements: Array.isArray(movements) ? movements : [],
+    })
   } catch {
-    return []
+    return null
   }
 }
 
-export function saveMovements(movements: StockMovement[]): void {
-  localStorage.setItem(MOVEMENTS_KEY, JSON.stringify(movements))
+function hasContent(data: AppData | null | undefined): data is AppData {
+  return Boolean(data && (data.products.length > 0 || data.movements.length > 0))
 }
 
-/** Ghi chú nơi lưu dữ liệu (web). */
-export function getStorageLocationNote(): string {
-  return (
-    'Dữ liệu nằm trong localStorage của đúng trình duyệt + máy này ' +
-    '(Chrome và Edge là 2 kho riêng). Xóa cache / đổi trình duyệt / đổi máy = mất dữ liệu nếu chưa backup.'
-  )
+/** Thời điểm thay đổi gần nhất trong bộ dữ liệu (để chọn bản mới nhất). */
+export function lastChangeAt(data: AppData): string {
+  let latest = ''
+  for (const p of data.products) if (p.updatedAt > latest) latest = p.updatedAt
+  for (const m of data.movements) if (m.createdAt > latest) latest = m.createdAt
+  for (const d of data.documents) if (d.createdAt > latest) latest = d.createdAt
+  return latest
 }
 
-export function buildBackup(
-  products: Product[],
-  movements: StockMovement[],
-  theme?: string,
-): RilandBackup {
+/**
+ * Đọc dữ liệu bản cũ còn trong trình duyệt (IndexedDB, bản dự phòng localStorage,
+ * hoặc khóa cũ riland-*). Có nhiều bản thì lấy bản có thay đổi mới nhất.
+ */
+export async function loadBrowserData(): Promise<AppData | null> {
+  const candidates: AppData[] = []
+  try {
+    const stored = await idbGet<Partial<AppData>>(DATA_KEY)
+    if (stored) candidates.push(normalizeData(stored))
+  } catch {
+    /* ignore */
+  }
+  try {
+    const fallback = localStorage.getItem(FALLBACK_KEY)
+    if (fallback) candidates.push(normalizeData(JSON.parse(fallback) as Partial<AppData>))
+  } catch {
+    /* ignore */
+  }
+  const legacy = loadLegacyLocal()
+  if (legacy) candidates.push(legacy)
+
+  const withData = candidates.filter(hasContent)
+  if (withData.length === 0) return null
+  return withData.reduce((best, c) => (lastChangeAt(c) > lastChangeAt(best) ? c : best))
+}
+
+export function isBrowserDataMigrated(): boolean {
+  try {
+    return localStorage.getItem(MIGRATED_KEY) !== null
+  } catch {
+    return false
+  }
+}
+
+export function markBrowserDataMigrated() {
+  try {
+    localStorage.setItem(MIGRATED_KEY, new Date().toISOString())
+  } catch {
+    /* ignore */
+  }
+}
+
+/* ---------- Backup ---------- */
+
+export function buildBackup(data: AppData, theme?: string): RilandBackup {
   return {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
-    products,
-    movements,
+    ...data,
     theme: theme ?? localStorage.getItem(THEME_KEY) ?? undefined,
   }
 }
@@ -95,7 +177,8 @@ type WindowWithSavePicker = Window & {
 
 /** Cho user chọn chỗ lưu; fallback tải về Downloads nếu trình duyệt không hỗ trợ. */
 export async function downloadBackupJson(backup: RilandBackup): Promise<'saved' | 'cancelled'> {
-  const stamp = new Date().toISOString().slice(0, 10)
+  const d = new Date()
+  const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   const suggestedName = `XIAOXINSTOCK-BACKUP-${stamp}.json`
   const contents = JSON.stringify(backup, null, 2)
   const blob = new Blob([contents], {
@@ -166,6 +249,18 @@ function isMovement(value: unknown): value is StockMovement {
   )
 }
 
+function isDocument(value: unknown): value is StockDocument {
+  if (!value || typeof value !== 'object') return false
+  const d = value as Partial<StockDocument>
+  return (
+    typeof d.id === 'string' &&
+    typeof d.code === 'string' &&
+    (d.type === 'in' || d.type === 'out' || d.type === 'return' || d.type === 'set') &&
+    typeof d.date === 'string' &&
+    Array.isArray(d.lines)
+  )
+}
+
 export function parseBackupJson(raw: string): RilandBackup {
   let data: unknown
   try {
@@ -179,44 +274,43 @@ export function parseBackupJson(raw: string): RilandBackup {
   }
 
   const obj = data as Record<string, unknown>
+  const isRiland = obj.format === BACKUP_FORMAT
+  const looksLikeData = Array.isArray(obj.products) && Array.isArray(obj.movements)
 
-  // Backup chuẩn Riland
-  if (obj.format === BACKUP_FORMAT) {
-    if (!Array.isArray(obj.products) || !Array.isArray(obj.movements)) {
-      throw new Error('Backup thiếu products / movements')
-    }
-    if (!obj.products.every(isProduct)) {
-      throw new Error('Danh sách sản phẩm trong backup bị lỗi')
-    }
-    if (!obj.movements.every(isMovement)) {
-      throw new Error('Lịch sử trong backup bị lỗi')
-    }
-    return {
-      format: BACKUP_FORMAT,
-      version: typeof obj.version === 'number' ? obj.version : BACKUP_VERSION,
-      exportedAt: typeof obj.exportedAt === 'string' ? obj.exportedAt : new Date().toISOString(),
-      products: obj.products,
-      movements: obj.movements,
-      theme: typeof obj.theme === 'string' ? obj.theme : undefined,
+  if (!isRiland && !looksLikeData) {
+    throw new Error('Không nhận ra file backup XiaoxinStock (.json)')
+  }
+  if (!Array.isArray(obj.products) || !Array.isArray(obj.movements)) {
+    throw new Error('Backup thiếu products / movements')
+  }
+  if (!obj.products.every(isProduct)) {
+    throw new Error('Danh sách sản phẩm trong backup bị lỗi')
+  }
+  if (!obj.movements.every(isMovement)) {
+    throw new Error('Lịch sử trong backup bị lỗi')
+  }
+  if (obj.documents !== undefined) {
+    if (!Array.isArray(obj.documents) || !obj.documents.every(isDocument)) {
+      throw new Error('Danh sách phiếu trong backup bị lỗi')
     }
   }
 
-  // Nhận luôn file dạng { products, movements } (không có format)
-  if (Array.isArray(obj.products) && Array.isArray(obj.movements)) {
-    if (!obj.products.every(isProduct) || !obj.movements.every(isMovement)) {
-      throw new Error('Nội dung products / movements không hợp lệ')
-    }
-    return {
-      format: BACKUP_FORMAT,
-      version: BACKUP_VERSION,
-      exportedAt: new Date().toISOString(),
-      products: obj.products,
-      movements: obj.movements,
-      theme: typeof obj.theme === 'string' ? obj.theme : undefined,
-    }
-  }
+  const normalized = normalizeData({
+    products: obj.products as Product[],
+    movements: obj.movements as StockMovement[],
+    documents: (obj.documents as StockDocument[] | undefined) ?? [],
+    categories: Array.isArray(obj.categories) ? (obj.categories as AppData['categories']) : [],
+    platforms: Array.isArray(obj.platforms) ? (obj.platforms as AppData['platforms']) : [],
+    settings: (obj.settings as AppData['settings'] | undefined) ?? undefined,
+  })
 
-  throw new Error('Không nhận ra file backup XiaoxinStock (.json)')
+  return {
+    ...normalized,
+    format: BACKUP_FORMAT,
+    version: typeof obj.version === 'number' ? obj.version : 1,
+    exportedAt: typeof obj.exportedAt === 'string' ? obj.exportedAt : new Date().toISOString(),
+    theme: typeof obj.theme === 'string' ? obj.theme : undefined,
+  }
 }
 
 export async function readBackupFile(file: File): Promise<RilandBackup> {

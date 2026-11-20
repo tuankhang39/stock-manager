@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs'
 import * as XLSX from 'xlsx'
 import { APP_CREATOR } from './brand'
+import { localDateKey } from './domain/format'
 import type { ExcelImportRow, Product, StockMovement } from './types'
 
 function cleanText(value: unknown): string {
@@ -51,6 +52,26 @@ function parseQuantity(value: unknown): number {
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
 }
 
+/**
+ * Giá tiền (VNĐ): ô số giữ nguyên; ô chữ bỏ dấu phân cách hàng nghìn
+ * ("7.500" -> 7500, "1,250,000đ" -> 1250000).
+ */
+export function parsePrice(value: unknown): number | undefined {
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : undefined
+  const text = String(value ?? '').trim()
+  if (!text) return undefined
+  // "12.5" / "12,5" (1–2 chữ số sau dấu) là số thập phân, không phải hàng nghìn
+  const decimal = text.match(/^(\d+)[.,](\d{1,2})$/)
+  if (decimal) {
+    const n = Number(`${decimal[1]}.${decimal[2]}`)
+    return n > 0 ? n : undefined
+  }
+  const digits = text.replace(/[^\d]/g, '')
+  if (!digits) return undefined
+  const n = Number(digits)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
 function parseUnit(unitCell: unknown, qtyCell: unknown): string | undefined {
   const fromUnit = cleanText(unitCell)
     .replace(/\s+/g, ' ')
@@ -97,6 +118,18 @@ export function parseBhldExcel(file: ArrayBuffer): ExcelImportRow[] {
   const products: ExcelImportRow[] = []
   let currentDate: string | undefined
 
+  // Cột "MÃ SKU" (nếu có) nằm ở hàng tiêu đề — tự dò vị trí.
+  let skuCol = -1
+  for (const headerIdx of [1, 0]) {
+    const headerRow = rows[headerIdx]
+    if (!headerRow) continue
+    const found = headerRow.findIndex((c) => /sku/i.test(String(c ?? '')))
+    if (found >= 0) {
+      skuCol = found
+      break
+    }
+  }
+
   for (let i = 2; i < rows.length; i += 1) {
     const row = rows[i]
     if (!row) continue
@@ -106,6 +139,7 @@ export function parseBhldExcel(file: ArrayBuffer): ExcelImportRow[] {
     const qtyCell = row[4]
     const unitCell = row[5]
     const priceCell = row[6]
+    const sku = skuCol >= 0 ? cleanText(row[skuCol]) || undefined : undefined
 
     const dateParsed = excelDateToString(dateCell)
     if (dateParsed) currentDate = dateParsed
@@ -115,12 +149,10 @@ export function parseBhldExcel(file: ArrayBuffer): ExcelImportRow[] {
     if (!name || quantity <= 0) continue
 
     const unit = parseUnit(unitCell, qtyCell)
-    const unitPrice =
-      typeof priceCell === 'number' && Number.isFinite(priceCell)
-        ? priceCell
-        : parseQuantity(priceCell) || undefined
+    const unitPrice = parsePrice(priceCell)
 
     products.push({
+      sku,
       name,
       quantity,
       unit,
@@ -155,12 +187,16 @@ export function parseProductsFromExcel(file: ArrayBuffer): ExcelImportRow[] {
     }
 
     const name = normalizeProductName(
-      find(['tên', 'ten', 'name', 'sản phẩm', 'san pham', 'sp']) ?? '',
+      find(['tên', 'ten', 'name', 'sản phẩm', 'san pham']) ?? '',
     )
+    const sku =
+      cleanText(find(['sku', 'mã sp', 'ma sp', 'mã hàng', 'ma hang']) || '') || undefined
     const quantity = parseQuantity(find(['số lượng', 'so luong', 'quantity', 'sl', 'qty']))
     const unit = cleanText(find(['đơn vị', 'don vi', 'unit', 'dvt']) || '') || undefined
+    const priceRaw = find(['giá nhập', 'gia nhap', 'đơn giá', 'don gia', 'price'])
+    const unitPrice = parsePrice(priceRaw)
     if (!name || quantity <= 0) continue
-    products.push({ name, quantity, unit })
+    products.push({ sku, name, quantity, unit, unitPrice })
   }
   return products
 }
@@ -208,9 +244,9 @@ export function resolveProductReportDate(
   const lastOut = [...movements]
     .filter((m) => m.productId === product.id && m.type === 'out')
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
-  if (lastOut) return lastOut.createdAt.slice(0, 10)
+  if (lastOut) return localDateKey(new Date(lastOut.createdAt))
 
-  return product.updatedAt.slice(0, 10)
+  return localDateKey(new Date(product.updatedAt))
 }
 
 function formatQtyWithUnit(quantity: number, unit?: string): string {
@@ -386,12 +422,13 @@ export async function exportProductsToExcel(
     { key: 'g', width: 14 },
     { key: 'h', width: 14 },
     { key: 'i', width: 14 },
-    { key: 'j', width: 3 },
-    { key: 'k', width: 14 },
-    { key: 'l', width: 12 },
-    { key: 'm', width: 10 },
-    { key: 'n', width: 36 },
-    { key: 'o', width: 14 },
+    { key: 'j', width: 16 },
+    { key: 'k', width: 3 },
+    { key: 'l', width: 14 },
+    { key: 'm', width: 12 },
+    { key: 'n', width: 10 },
+    { key: 'o', width: 36 },
+    { key: 'p', width: 14 },
   ]
 
   const title =
@@ -399,7 +436,7 @@ export async function exportProductsToExcel(
 
   const titleRow = sheet.getRow(1)
   titleRow.height = 36
-  sheet.mergeCells(1, 1, 1, 9)
+  sheet.mergeCells(1, 1, 1, 10)
   const titleCell = sheet.getCell(1, 1)
   titleCell.value = title
   styleCell(titleCell, { yellow: true, bold: true, size: 12 })
@@ -411,9 +448,10 @@ export async function exportProductsToExcel(
     'TÊN \nSẢN PHẨM\n产品名称',
     'SỐ LƯỢNG\n数量',
     'ĐƠN VỊ \nTÍNH\n单位',
-    'ĐƠN GIÁ\n(VND)/ĐƠN VỊ\n单价',
+    'GIÁ NHẬP\n(VND)/ĐƠN VỊ\n单价',
     'HÌNH ẢNH PHIẾU GIAO HÀNG\n交货单图片',
     'HÌNH ẢNH PHIẾU GIAO HÀNG\nĐÃ KÝ\n已签字的送货单照片',
+    'MÃ SKU',
   ]
   const sideHeaders = [
     'NGÀY CHỈNH TỒN\n库存调整日期',
@@ -430,9 +468,9 @@ export async function exportProductsToExcel(
     cell.value = text
     styleCell(cell, { yellow: true, bold: true, size: 10 })
   })
-  styleCell(headerRow.getCell(10), { border: false, size: 10 })
+  styleCell(headerRow.getCell(11), { border: false, size: 10 })
   sideHeaders.forEach((text, index) => {
-    const cell = headerRow.getCell(index + 11)
+    const cell = headerRow.getCell(index + 12)
     cell.value = text
     styleCell(cell, { yellow: true, bold: true, size: 10 })
   })
@@ -481,6 +519,7 @@ export async function exportProductsToExcel(
       product?.unitPrice ?? null,
       null,
       null,
+      product?.sku ?? null,
       null,
       movedAt
         ? `${String(movedAt.getDate()).padStart(2, '0')}/${String(movedAt.getMonth() + 1).padStart(2, '0')}`
@@ -496,12 +535,12 @@ export async function exportProductsToExcel(
     values.forEach((value, col) => {
       const cell = row.getCell(col + 1)
       cell.value = value
-      const inMainTable = col <= 8
-      const inSideTable = col >= 10
+      const inMainTable = col <= 9
+      const inSideTable = col >= 11
       styleCell(cell, {
         yellow: col === 0 && Boolean(product),
-        size: col === 3 || col === 13 ? 10 : 11,
-        align: col === 3 || col === 13 ? 'left' : 'center',
+        size: col === 3 || col === 14 ? 10 : 11,
+        align: col === 3 || col === 14 ? 'left' : 'center',
         border: inMainTable || inSideTable,
         numFmt: col === 6 && typeof value === 'number' ? '#,##0' : undefined,
       })
@@ -517,7 +556,7 @@ export async function exportProductsToExcel(
       await addProductImage(workbook, sheet, product.signedSlipImage, rowIndex, 8)
     }
     if (movementProduct?.image) {
-      await addProductImage(workbook, sheet, movementProduct.image, rowIndex, 14)
+      await addProductImage(workbook, sheet, movementProduct.image, rowIndex, 15)
     }
   }
 
@@ -543,18 +582,23 @@ export async function exportProductsToExcel(
     groupStart = groupEnd + 1
   }
 
-  const stamp = today.toISOString().slice(0, 10)
+  const stamp = localDateKey(today)
   await downloadWorkbook(workbook, `BAO CAO CONG VIEC HANG NGAY BHLD ${stamp}.xlsx`)
 }
 
-function movementTypeLabel(type: StockMovement['type']): string {
-  if (type === 'in') return 'Nhập (+)\n入库'
-  if (type === 'out') return 'Xuất (−)\n出库'
+function movementTypeLabel(m: StockMovement): string {
+  if (m.docType === 'return') return 'Khách trả (+)\n退货'
+  if (m.type === 'in') return 'Nhập (+)\n入库'
+  if (m.type === 'out') return 'Xuất (−)\n出库'
   return 'Đặt tồn\n设定库存'
 }
 
 /** Xuất lịch sử chỉnh tồn — format rõ (header vàng, viền, căn lề). */
-export async function exportMovementsToExcel(movements: StockMovement[]): Promise<void> {
+export async function exportMovementsToExcel(
+  movements: StockMovement[],
+  products: Product[] = [],
+): Promise<void> {
+  const skuById = new Map(products.map((p) => [p.id, p.sku]))
   const today = new Date()
   const workbook = new ExcelJS.Workbook()
   workbook.creator = APP_CREATOR
@@ -566,18 +610,20 @@ export async function exportMovementsToExcel(movements: StockMovement[]): Promis
   sheet.columns = [
     { width: 18 },
     { width: 20 },
+    { width: 16 },
     { width: 36 },
     { width: 14 },
     { width: 22 },
     { width: 12 },
     { width: 10 },
     { width: 10 },
+    { width: 12 },
     { width: 28 },
   ]
 
   const titleRow = sheet.getRow(1)
   titleRow.height = 32
-  sheet.mergeCells(1, 1, 1, 9)
+  sheet.mergeCells(1, 1, 1, 11)
   const titleCell = sheet.getCell(1, 1)
   titleCell.value =
     'Lịch sử chỉnh tồn kho BHLĐ\n劳保库存调整历史'
@@ -586,12 +632,14 @@ export async function exportMovementsToExcel(movements: StockMovement[]): Promis
   const headers = [
     'MÃ PHIẾU\n单据编号',
     'THỜI GIAN\n时间',
+    'MÃ SKU',
     'SẢN PHẨM\n产品名称',
     'LOẠI\n类型',
-    'LÝ DO\n原因',
+    'NỘI DUNG\n原因',
     'SỐ LƯỢNG\n数量',
     'TRƯỚC\n调整前',
     'SAU\n调整后',
+    'THAY ĐỔI\n变动',
     'GHI CHÚ\n备注',
   ]
   const headerRow = sheet.getRow(2)
@@ -613,12 +661,14 @@ export async function exportMovementsToExcel(movements: StockMovement[]): Promis
     const values: (string | number)[] = [
       m.code,
       timeText,
+      m.sku ?? skuById.get(m.productId) ?? '',
       m.productName,
-      movementTypeLabel(m.type),
+      movementTypeLabel(m),
       m.reason,
       m.quantity,
       m.before,
       m.after,
+      m.delta ?? m.after - m.before,
       m.note ?? '',
     ]
 
@@ -627,8 +677,8 @@ export async function exportMovementsToExcel(movements: StockMovement[]): Promis
       cell.value = value
       styleCell(cell, {
         size: 11,
-        align: col === 2 || col === 4 || col === 8 ? 'left' : 'center',
-        numFmt: col >= 5 && col <= 7 ? '#,##0' : undefined,
+        align: col === 3 || col === 5 || col === 10 ? 'left' : 'center',
+        numFmt: col >= 6 && col <= 9 ? '#,##0' : undefined,
       })
     })
   })
@@ -636,13 +686,13 @@ export async function exportMovementsToExcel(movements: StockMovement[]): Promis
   if (sorted.length === 0) {
     const empty = sheet.getRow(3)
     empty.height = 28
-    sheet.mergeCells(3, 1, 3, 9)
+    sheet.mergeCells(3, 1, 3, 11)
     const cell = empty.getCell(1)
     cell.value = 'Chưa có lịch sử'
     styleCell(cell, { size: 11 })
   }
 
-  const stamp = today.toISOString().slice(0, 10)
+  const stamp = localDateKey(today)
   await downloadWorkbook(workbook, `LICH SU CHINH TON BHLD ${stamp}.xlsx`)
 }
 
@@ -665,11 +715,12 @@ export async function downloadExcelTemplate(): Promise<void> {
     { width: 14 },
     { width: 18 },
     { width: 20 },
+    { width: 16 },
   ]
 
   const titleRow = sheet.getRow(1)
   titleRow.height = 36
-  sheet.mergeCells(1, 1, 1, 9)
+  sheet.mergeCells(1, 1, 1, 10)
   const titleCell = sheet.getCell(1, 1)
   titleCell.value =
     'Mẫu nhập Excel BHLĐ (điền từ hàng 3)\n劳保Excel导入模板（从第3行填写）'
@@ -682,9 +733,10 @@ export async function downloadExcelTemplate(): Promise<void> {
     'TÊN \nSẢN PHẨM\n产品名称',
     'SỐ LƯỢNG\n数量',
     'ĐƠN VỊ \nTÍNH\n单位',
-    'ĐƠN GIÁ\n(VND)/ĐƠN VỊ\n单价',
+    'GIÁ NHẬP\n(VND)/ĐƠN VỊ\n单价',
     'HÌNH ẢNH PHIẾU GIAO HÀNG\n交货单图片',
     'HÌNH ẢNH PHIẾU GIAO HÀNG\nĐÃ KÝ\n已签字的送货单照片',
+    'MÃ SKU\n(không bắt buộc)',
   ]
   const headerRow = sheet.getRow(2)
   headerRow.height = 48
@@ -707,6 +759,7 @@ export async function downloadExcelTemplate(): Promise<void> {
     7500,
     '',
     '',
+    'GT-CANVAS',
   ]
   sampleValues.forEach((value, col) => {
     const cell = sample.getCell(col + 1)
@@ -723,7 +776,7 @@ export async function downloadExcelTemplate(): Promise<void> {
   for (let i = 4; i <= 12; i += 1) {
     const row = sheet.getRow(i)
     row.height = 28
-    for (let col = 1; col <= 9; col += 1) {
+    for (let col = 1; col <= 10; col += 1) {
       styleCell(row.getCell(col), {
         size: 11,
         align: col === 4 ? 'left' : 'center',

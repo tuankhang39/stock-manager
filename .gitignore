@@ -7,3 +7,5 @@ release
 .env.*
 keys-private.txt
 !.env.example
+server-dist
+*.tsbuildinfo

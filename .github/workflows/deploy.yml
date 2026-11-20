@@ -1,0 +1,128 @@
+# Push lên main → chạy test → build image → đẩy lên GHCR → SSH vào VPS và khởi động lại.
+# Cần 3 secret trong repo (Settings → Secrets and variables → Actions):
+#   VPS_HOST     IP VPS
+#   VPS_USER     deploy
+#   VPS_SSH_KEY  private key (cặp với public key "github-actions-xiaoxinstock" trên VPS)
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-xiaoxinstock
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  build:
+    name: Build image
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_repo: ${{ steps.img.outputs.repo }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image repository (lowercase)
+        id: img
+        run: echo "repo=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.img.outputs.repo }}:${{ github.sha }}
+            ${{ steps.img.outputs.repo }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to VPS
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/xiaoxinstock' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check deploy secrets are present
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          ok=1
+          [ -n "${VPS_HOST:-}" ] || { echo "::error::Thiếu secret VPS_HOST"; ok=0; }
+          [ -n "${VPS_USER:-}" ] || { echo "::error::Thiếu secret VPS_USER"; ok=0; }
+          [ -n "${VPS_SSH_KEY:-}" ] || { echo "::error::Thiếu secret VPS_SSH_KEY"; ok=0; }
+          [ "$ok" = 1 ] || exit 1
+
+      - name: Deploy over SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          IMAGE_REPO: ${{ needs.build.outputs.image_repo }}
+          IMAGE_TAG: ${{ github.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          ssh_opts=(-i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=8 -o IdentitiesOnly=yes)
+          port="${VPS_PORT:-22}"
+          remote="${VPS_USER}@${VPS_HOST}"
+
+          run_ssh() { ssh "${ssh_opts[@]}" -p "$port" "$remote" "$@"; }
+          run_scp() { scp "${ssh_opts[@]}" -P "$port" "$@"; }
+
+          retry() {
+            for i in 1 2 3 4 5; do
+              set +e; "$@"; code=$?; set -e
+              [ $code -eq 0 ] && return 0
+              [ $code -ne 255 ] && return $code
+              echo "::warning::Không kết nối được VPS (lần $i), thử lại sau $((i * 15))s"
+              sleep $((i * 15))
+            done
+            return 255
+          }
+
+          retry run_ssh "mkdir -p '$DEPLOY_PATH/deploy'"
+          retry run_scp -q docker-compose.prod.yml "$remote:$DEPLOY_PATH/"
+          retry run_scp -q deploy/remote-deploy.sh "$remote:$DEPLOY_PATH/deploy/"
+          retry run_ssh "chmod +x '$DEPLOY_PATH/deploy/remote-deploy.sh' && DEPLOY_PATH='$DEPLOY_PATH' IMAGE_REPO='$IMAGE_REPO' IMAGE_TAG='$IMAGE_TAG' GHCR_USER='$GHCR_USER' GHCR_TOKEN='$GHCR_TOKEN' bash '$DEPLOY_PATH/deploy/remote-deploy.sh'"

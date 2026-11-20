@@ -1,172 +1,147 @@
-import type { Product, StockMovement } from './types'
+import { applyDocument, type DocLineInput } from './domain/documents'
+import { localDateKey } from './domain/format'
+import { emptyData, type AppData } from './types'
 
-function uid() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+function dayOffset(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  return localDateKey(d)
 }
 
-function isoHoursAgo(hours: number) {
-  return new Date(Date.now() - hours * 3600 * 1000).toISOString()
-}
+/** Dữ liệu mẫu để dùng thử (chỉ hiện ở chế độ dev). */
+export function createSampleData(): AppData {
+  let data = emptyData()
+  data.categories = [
+    { id: 'cat-da', name: 'Găng tay hàn da bò' },
+    { id: 'cat-cs', name: 'Găng tay cao su' },
+    { id: 'cat-ny', name: 'Găng tay nylon' },
+    { id: 'cat-kinh', name: 'Kính bảo hộ' },
+  ]
 
-/** Dữ liệu mẫu BHLD để dùng thử trên mọi trình duyệt. */
-export function createSampleData(): { products: Product[]; movements: StockMovement[] } {
-  const now = new Date().toISOString()
-  const samples: Array<{
-    name: string
-    unit: string
-    unitPrice: number
-    initial: number
-    adjustments: Array<{
-      type: 'in' | 'out'
-      qty: number
-      reason: string
-      note: string
-      hoursAgo: number
-    }>
-  }> = [
+  const items: Array<DocLineInput & { qty: number }> = [
     {
+      sku: 'GT-DA-40V',
       name: 'GĂNG TAY DA HÀN DÀI MÀU VÀNG (40CM)',
       unit: 'ĐÔI',
       unitPrice: 55000,
-      initial: 120,
-      adjustments: [
-        {
-          type: 'in',
-          qty: 30,
-          reason: 'Nhập hàng',
-          note: 'Excel ngày 29/10/2026',
-          hoursAgo: 20,
-        },
-      ],
+      categoryId: 'cat-da',
+      qty: 120,
+      quantity: 120,
     },
     {
+      sku: 'GT-CS-XAM',
       name: 'GĂNG TAY CAO SU XÁM CHỐNG MÀI MÒN',
       unit: 'ĐÔI',
       unitPrice: 6000,
-      initial: 120,
-      adjustments: [
-        {
-          type: 'out',
-          qty: 20,
-          reason: 'Bán hàng / xuất TMĐT',
-          note: 'Xuất TMĐT',
-          hoursAgo: 30,
-        },
-        {
-          type: 'out',
-          qty: 3,
-          reason: 'Lấy mẫu quay',
-          note: 'Lấy mẫu quay video',
-          hoursAgo: 5,
-        },
-      ],
+      categoryId: 'cat-cs',
+      qty: 120,
+      quantity: 120,
     },
     {
+      sku: 'GT-NY-DEN',
+      name: 'Găng tay Nylon đen',
+      unit: 'ĐÔI',
+      unitPrice: 1500,
+      categoryId: 'cat-ny',
+      qty: 100,
+      quantity: 100,
+    },
+    {
+      sku: 'GT-NY-XAM',
+      name: 'Găng tay Nylon xám',
+      unit: 'ĐÔI',
+      unitPrice: 1600,
+      categoryId: 'cat-ny',
+      qty: 50,
+      quantity: 50,
+    },
+    {
+      sku: 'K-SUONG',
       name: 'Kính chống sương',
       unit: 'CÁI',
       unitPrice: 8700,
-      initial: 36,
-      adjustments: [
-        { type: 'in', qty: 24, reason: 'Nhập hàng', note: 'Bổ sung tồn', hoursAgo: 18 },
-        {
-          type: 'in',
-          qty: 60,
-          reason: 'Nhập hàng',
-          note: 'Excel ngày 31/10/2026',
-          hoursAgo: 4,
-        },
-      ],
+      categoryId: 'cat-kinh',
+      qty: 8,
+      quantity: 8,
     },
     {
-      name: 'GĂNG TAY BỌT CAO SU XANH ĐEN',
-      unit: 'ĐÔI',
-      unitPrice: 6000,
-      initial: 120,
-      adjustments: [
-        {
-          type: 'in',
-          qty: 120,
-          reason: 'Nhập hàng',
-          note: 'Excel ngày 31/10/2026',
-          hoursAgo: 3,
-        },
-      ],
-    },
-    {
-      name: '24 Găng Tay Vãi Canvas Nguyên Chất',
+      sku: 'GT-CANVAS',
+      name: 'Găng Tay Vãi Canvas Nguyên Chất',
       unit: 'ĐÔI',
       unitPrice: 7500,
-      initial: 100,
-      adjustments: [],
-    },
-    {
-      name: 'Kính chống sương có đệm mút',
-      unit: 'CÁI',
-      unitPrice: 14000,
-      initial: 120,
-      adjustments: [],
+      qty: 100,
+      quantity: 100,
     },
   ]
 
-  const products: Product[] = []
-  const movements: StockMovement[] = []
-  let nk = 1
-  let xk = 1
+  data = applyDocument(data, {
+    type: 'in',
+    date: dayOffset(40),
+    reason: 'Nhập hàng',
+    note: 'Dữ liệu mẫu',
+    vatRate: 8,
+    lines: items,
+  }).data
 
-  for (const sample of samples) {
-    const id = uid()
-    let qty = sample.initial
+  data = applyDocument(data, {
+    type: 'out',
+    date: dayOffset(3),
+    reason: 'Bán hàng / xuất TMĐT',
+    note: 'Xuất TMĐT',
+    lines: [
+      { sku: 'GT-CS-XAM', name: '', quantity: 20 },
+      { sku: 'GT-NY-DEN', name: '', quantity: 30 },
+    ],
+  }).data
 
-    movements.push({
-      id: uid(),
-      code: `NK-20261029-${String(nk).padStart(3, '0')}`,
-      productId: id,
-      productName: sample.name,
-      type: 'in',
-      reason: 'Nhập hàng',
-      quantity: sample.initial,
-      before: 0,
-      after: sample.initial,
-      note: 'Dữ liệu mẫu BHLD',
-      createdAt: isoHoursAgo(48),
-    })
-    nk += 1
+  data = applyDocument(data, {
+    type: 'in',
+    date: dayOffset(1),
+    reason: 'Nhập hàng',
+    lines: [
+      { sku: 'GT-NY-DEN', name: '', quantity: 60, unitPrice: 1500 },
+      { sku: 'K-SUONG', name: '', quantity: 2, unitPrice: 8700 },
+    ],
+  }).data
 
-    for (const adj of sample.adjustments) {
-      const before = qty
-      const after = adj.type === 'in' ? before + adj.qty : Math.max(0, before - adj.qty)
-      const codePrefix = adj.type === 'in' ? 'NK' : 'XK'
-      const seq = adj.type === 'in' ? nk : xk
-      if (adj.type === 'in') nk += 1
-      else xk += 1
-
-      movements.push({
-        id: uid(),
-        code: `${codePrefix}-20261031-${String(seq).padStart(3, '0')}`,
-        productId: id,
-        productName: sample.name,
-        type: adj.type,
-        reason: adj.reason,
-        quantity: adj.qty,
-        before,
-        after,
-        note: adj.note,
-        createdAt: isoHoursAgo(adj.hoursAgo),
-      })
-      qty = after
+  const tiers = (base: number) => [
+    { qty: 1, price: base },
+    { qty: 6, price: Math.round(base * 5.4) },
+    { qty: 12, price: Math.round(base * 10.2) },
+    { qty: 24, price: Math.round(base * 19.2) },
+  ]
+  data.products = data.products.map((p) => {
+    const base = Math.round((p.unitPrice ?? 0) * 1.6)
+    if (!base) return p
+    return {
+      ...p,
+      salePrices: { tiktok: tiers(base), shopee: tiers(Math.round(base * 1.05)) },
     }
+  })
 
-    products.push({
-      id,
-      name: sample.name,
-      quantity: qty,
-      unit: sample.unit,
-      unitPrice: sample.unitPrice,
-      deliveryDate: now.slice(0, 10),
-      updatedAt: now,
-    })
+  const denId = data.products.find((p) => p.sku === 'GT-NY-DEN')?.id
+  const xamId = data.products.find((p) => p.sku === 'GT-NY-XAM')?.id
+  if (denId && xamId) {
+    const nowIso = new Date().toISOString()
+    data.products = [
+      {
+        id: 'combo-ny-1',
+        sku: 'CB-NY-2',
+        name: 'Combo 2 đôi găng tay Nylon (1 đen + 1 xám)',
+        quantity: 0,
+        unit: 'COMBO',
+        categoryId: 'cat-ny',
+        comboItems: [
+          { productId: denId, qty: 1 },
+          { productId: xamId, qty: 1 },
+        ],
+        salePrices: { tiktok: [{ qty: 1, price: 9900 }], shopee: [{ qty: 1, price: 10500 }] },
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      },
+      ...data.products,
+    ]
   }
 
-  movements.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  return { products, movements }
+  return data
 }
