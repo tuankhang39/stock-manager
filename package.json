@@ -1,0 +1,28 @@
+{
+  "name": "xiaoxin-stock",
+  "private": true,
+  "version": "1.0.0",
+  "description": "XiaoxinStock — quản lý tồn BHLĐ",
+  "author": "XiaoxinStock",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "keys:gen": "node scripts/generate-keys.mjs",
+    "keys:append": "node scripts/generate-keys.mjs --append 5"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.3"
+  }
+}
