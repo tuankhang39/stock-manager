@@ -797,6 +797,22 @@ img {
   font-size: 0.78rem;
 }
 
+.combo-sell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.combo-sell-input {
+  width: 3.6rem;
+  padding: 0.38rem 0.45rem;
+  font-size: 0.82rem;
+  text-align: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+}
+
 .badge.inline {
   position: static;
   display: inline-flex;

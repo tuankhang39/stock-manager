@@ -1,13 +1,50 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { isCombo } from '../domain/combos'
 import { downloadExcelTemplate, exportProductsToExcel } from '../excel'
 import { useApp } from '../store/context'
 import { importExcelFile } from '../store/excelImport'
+import { DateRangePicker, inRange, rangeLabel, todayRange, type DateTimeRange } from './DateRangePicker'
+
+/** Nội dung hộp thoại xuất: chọn khoảng ngày cho phần lịch sử chỉnh tồn. */
+function ExportRangeForm({ onChange }: { onChange: (r: DateTimeRange) => void }) {
+  const [range, setRange] = useState<DateTimeRange>(todayRange)
+  return (
+    <>
+      <p>Chọn khoảng ngày giờ cho phần lịch sử chỉnh tồn trong file (mặc định hôm nay).</p>
+      <DateRangePicker
+        value={range}
+        onChange={(r) => {
+          setRange(r)
+          onChange(r)
+        }}
+      />
+    </>
+  )
+}
 
 /** Nhập / xuất Excel (mẫu BHLĐ). */
 export function ExcelButtons({ compact }: { compact?: boolean }) {
   const ctx = useApp()
   const inputRef = useRef<HTMLInputElement>(null)
+
+  async function exportWithRange() {
+    let range = todayRange()
+    const ok = await ctx.confirm({
+      title: 'Xuất Excel sản phẩm',
+      message: <ExportRangeForm onChange={(r) => (range = r)} />,
+      confirmLabel: 'Xuất Excel',
+    })
+    if (!ok) return
+    const all = ctx.getData()
+    await exportProductsToExcel(
+      all.products.filter((p) => !isCombo(p)),
+      all.movements,
+      {
+        movements: all.movements.filter((m) => inRange(m.createdAt, range)),
+        fileSuffix: rangeLabel(range)?.fileSuffix,
+      },
+    )
+  }
 
   return (
     <>
@@ -28,12 +65,7 @@ export function ExcelButtons({ compact }: { compact?: boolean }) {
       <button
         className="btn btn-ghost btn-sm"
         type="button"
-        onClick={() =>
-          void exportProductsToExcel(
-            ctx.data.products.filter((p) => !isCombo(p)),
-            ctx.data.movements,
-          )
-        }
+        onClick={() => void exportWithRange()}
       >
         Xuất Excel
       </button>

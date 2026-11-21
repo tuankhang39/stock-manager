@@ -1,73 +1,24 @@
 import { useMemo, useState } from 'react'
 import { movementDelta, previewRevert, revertMovements } from '../domain/documents'
-import { formatDateTime, localDateKey, normalizeText } from '../domain/format'
+import { formatDateTime, normalizeText } from '../domain/format'
 import { exportMovementsToExcel } from '../excel'
 import { useApp } from '../store/context'
 import { RevertPreview } from '../ui/RevertPreview'
 import { DOC_LABEL, type DocType, type StockMovement } from '../types'
 import { Pager, usePagination } from '../ui/Pagination'
+import { DateRangePicker, describeRange, inRange, rangeLabel, todayRange, type DateTimeRange } from '../ui/DateRangePicker'
 
 function docTypeOf(m: StockMovement): DocType {
   return m.docType ?? (m.type === 'set' ? 'set' : m.type)
-}
-
-/** Mốc nhanh: [từ, đến] dạng 'YYYY-MM-DDTHH:mm' (giờ máy). */
-const PRESETS: { id: string; label: string; range: () => [string, string] }[] = [
-  {
-    id: 'today',
-    label: 'Hôm nay',
-    range: () => {
-      const d = new Date()
-      return [`${localDateKey(d)}T00:00`, `${localDateKey(d)}T23:59`]
-    },
-  },
-  {
-    id: 'yesterday',
-    label: 'Hôm qua',
-    range: () => {
-      const d = new Date()
-      d.setDate(d.getDate() - 1)
-      return [`${localDateKey(d)}T00:00`, `${localDateKey(d)}T23:59`]
-    },
-  },
-  {
-    id: '7d',
-    label: '7 ngày',
-    range: () => {
-      const d = new Date()
-      d.setDate(d.getDate() - 6)
-      return [`${localDateKey(d)}T00:00`, `${localDateKey()}T23:59`]
-    },
-  },
-  {
-    id: 'month',
-    label: 'Tháng này',
-    range: () => {
-      const d = new Date()
-      return [`${localDateKey(new Date(d.getFullYear(), d.getMonth(), 1))}T00:00`, `${localDateKey(d)}T23:59`]
-    },
-  },
-]
-
-/** '2026-11-20T08:00' → '20/11/2026 08:00' */
-function showDateTime(v: string): string {
-  const [date, time] = v.split('T')
-  const [y, m, d] = date.split('-')
-  return `${d}/${m}/${y} ${time}`
-}
-
-/** Mốc "đến" tính hết phút đó (08:30 → 08:30:59.999). */
-function toMs(v: string, endOfMinute: boolean): number {
-  const t = new Date(v).getTime()
-  return endOfMinute ? t + 59_999 : t
 }
 
 export function HistoryPage() {
   const { data, getData, replaceAll, confirm, toast, openDocDetail } = useApp()
   const [query, setQuery] = useState('')
   const [type, setType] = useState<'all' | DocType>('all')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  // Mặc định lọc hôm nay.
+  const [range, setRange] = useState<DateTimeRange>(todayRange)
+  const { from, to } = range
 
   const skuById = useMemo(
     () => new Map(data.products.map((p) => [p.id, p.sku])),
@@ -76,45 +27,19 @@ export function HistoryPage() {
 
   const rows = useMemo(() => {
     const q = normalizeText(query)
-    // from/to: 'YYYY-MM-DDTHH:mm' theo giờ máy (VN); new Date() đọc chuỗi này theo giờ địa phương.
-    const fromMs = from ? toMs(from, false) : -Infinity
-    const toMsEnd = to ? toMs(to, true) : Infinity
     return data.movements.filter((m) => {
       if (type !== 'all' && docTypeOf(m) !== type) return false
-      const at = new Date(m.createdAt).getTime()
-      if (at < fromMs || at > toMsEnd) return false
+      if (!inRange(m.createdAt, range)) return false
       if (!q) return true
       const hay = normalizeText(
         `${m.code} ${m.sku ?? skuById.get(m.productId) ?? ''} ${m.productName} ${m.reason} ${m.note ?? ''}`,
       )
       return hay.includes(q)
     })
-  }, [data.movements, query, type, from, to, skuById])
+  }, [data.movements, query, type, range, skuById])
   const pager = usePagination(rows, 'history', `${query}|${type}|${from}|${to}`)
-  const activePreset = PRESETS.find((p) => {
-    const [f, t] = p.range()
-    return f === from && t === to
-  })?.id
-
-  function applyPreset(id: string) {
-    const p = PRESETS.find((x) => x.id === id)
-    if (!p) return
-    const [f, t] = p.range()
-    setFrom(f)
-    setTo(t)
-  }
-
   function exportExcel() {
-    const range =
-      from || to
-        ? {
-            label: `Từ ${from ? showDateTime(from) : 'đầu'} đến ${to ? showDateTime(to) : 'nay'}`,
-            fileSuffix: `${from ? from.replace('T', '_').replace(':', '') : 'dau'} den ${
-              to ? to.replace('T', '_').replace(':', '') : localDateKey()
-            }`,
-          }
-        : undefined
-    void exportMovementsToExcel(rows, data.products, range)
+    void exportMovementsToExcel(rows, data.products, rangeLabel(range))
   }
 
   async function remove(m: StockMovement) {
@@ -182,59 +107,22 @@ export function HistoryPage() {
         </select>
       </div>
 
-      <div className="range-bar">
-        <div className="range-presets">
-          {PRESETS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className={`chip${activePreset === p.id ? ' active' : ''}`}
-              onClick={() => applyPreset(p.id)}
-            >
-              {p.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            className={`chip${!from && !to ? ' active' : ''}`}
-            onClick={() => {
-              setFrom('')
-              setTo('')
-            }}
-          >
-            Tất cả
-          </button>
-        </div>
-        <div className="date-filter">
-          <label>
-            <span>Từ</span>
-            <input
-              className="select"
-              type="datetime-local"
-              value={from}
-              max={to || undefined}
-              onChange={(e) => setFrom(e.target.value)}
-            />
-          </label>
-          <span>→</span>
-          <label>
-            <span>Đến</span>
-            <input
-              className="select"
-              type="datetime-local"
-              value={to}
-              min={from || undefined}
-              onChange={(e) => setTo(e.target.value)}
-            />
-          </label>
-        </div>
-      </div>
+      <DateRangePicker value={range} onChange={setRange} />
 
       {rows.length === 0 ? (
         <div className="empty">
           <div className="empty-ico">＋</div>
-          <h3>Chưa có lịch sử</h3>
-          <p>Lập phiếu nhập / xuất / đặt tồn để thấy nhật ký ở đây.</p>
+          {data.movements.length === 0 ? (
+            <>
+              <h3>Chưa có lịch sử</h3>
+              <p>Lập phiếu nhập / xuất / đặt tồn để thấy nhật ký ở đây.</p>
+            </>
+          ) : (
+            <>
+              <h3>Chưa có lịch sử cho {describeRange(range)}</h3>
+              <p>Thử chọn khoảng ngày khác (hoặc "Tất cả") hay đổi bộ lọc.</p>
+            </>
+          )}
         </div>
       ) : (
         <>

@@ -185,13 +185,10 @@ export function ProductsPage({ lowOnly, setLowOnly, onLoadSample }: Props) {
                       <td className="col-actions" onClick={(e) => e.stopPropagation()}>
                         <div className="table-actions">
                           {combo ? (
-                            <button
-                              className="btn btn-primary"
-                              type="button"
-                              onClick={() => void sellCombo(p.id, 1)}
-                            >
-                              −1 combo
-                            </button>
+                            <ComboSellControl
+                              max={qty}
+                              onSell={(n) => void sellCombo(p.id, n)}
+                            />
                           ) : (
                             <button
                               className="btn btn-ghost"
@@ -220,5 +217,36 @@ export function ProductsPage({ lowOnly, setLowOnly, onLoadSample }: Props) {
         </>
       )}
     </>
+  )
+}
+
+/** Ô nhập số lượng + nút bán combo (trừ tồn thành phần theo số lượng chọn). */
+function ComboSellControl({ max, onSell }: { max: number; onSell: (qty: number) => void }) {
+  const [value, setValue] = useState('1')
+  const n = Math.floor(Number(value))
+  const valid = Number.isFinite(n) && n >= 1
+  const submit = () => {
+    if (valid) onSell(n)
+  }
+  return (
+    <div className="combo-sell">
+      <input
+        className="combo-sell-input"
+        type="number"
+        min={1}
+        max={Math.max(1, max)}
+        step={1}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') submit()
+        }}
+        aria-label="Số combo bán"
+        title={`Tối đa ${max}`}
+      />
+      <button className="btn btn-primary" type="button" disabled={!valid || max < 1} onClick={submit}>
+        Bán combo
+      </button>
+    </div>
   )
 }

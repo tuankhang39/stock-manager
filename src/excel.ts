@@ -403,6 +403,8 @@ async function addProductImage(
 export async function exportProductsToExcel(
   products: Product[],
   movements: StockMovement[] = [],
+  /** Lịch sử chỉnh tồn (cột bên phải) chỉ lấy các dòng này + hậu tố tên file theo khoảng ngày. */
+  history?: { movements: StockMovement[]; fileSuffix?: string },
 ): Promise<void> {
   const today = new Date()
   const workbook = new ExcelJS.Workbook()
@@ -475,7 +477,7 @@ export async function exportProductsToExcel(
     styleCell(cell, { yellow: true, bold: true, size: 10 })
   })
 
-  const sortedMovements = [...movements].sort((a, b) =>
+  const sortedMovements = [...(history?.movements ?? movements)].sort((a, b) =>
     b.createdAt.localeCompare(a.createdAt),
   )
 
@@ -583,7 +585,8 @@ export async function exportProductsToExcel(
   }
 
   const stamp = localDateKey(today)
-  await downloadWorkbook(workbook, `BAO CAO CONG VIEC HANG NGAY BHLD ${stamp}.xlsx`)
+  const suffix = history?.fileSuffix ?? stamp
+  await downloadWorkbook(workbook, `BAO CAO CONG VIEC HANG NGAY BHLD ${suffix}.xlsx`)
 }
 
 function movementTypeLabel(m: StockMovement): string {
